@@ -22,10 +22,11 @@ CUR_PATH = os.path.dirname(os.path.abspath(__file__))
 class Robot:
     """机器人控制中心"""
     # 配置
-    USER_PATH = os.path.expanduser('~/.robot')
+    #USER_PATH = os.path.expanduser('~/.robot')
+    USER_PATH = os.path.expanduser('~/_robot')
     CONF_FILE = USER_PATH + "/config.yml"
-    FACE_DB_PATH = USER_PATH + "/facedb/"
-    FACE_ID_PATH = FACE_DB_PATH + "/faceid/"
+    FACE_ID_PATH = USER_PATH + "/facedb/faceid/"
+    TEMP_PATH = USER_PATH + "/tmp/"
     CONFIG_DATA = {}
     # 摄像头数据
     CAMERA_DATA = {
@@ -46,32 +47,24 @@ class Robot:
     def __init__(self):
         """初始化"""
         # 个人配置初始化
-        if os.path.exists(self.USER_PATH) is False:
-            utils.mkdir(self.USER_PATH)
-        if os.path.exists(self.FACE_DB_PATH) is False:
-            utils.mkdir(self.FACE_DB_PATH)
-        if os.path.exists(self.FACE_ID_PATH) is False:
-            utils.mkdir(self.FACE_ID_PATH)
-        try:
-            print(self.CONF_FILE)
-            if os.path.exists(self.CONF_FILE) is False:
-                for name in ['config.yml', '八戒.pmdl']:
-                    utils.cp(CUR_PATH+'/conf/' + name, self.USER_PATH + '/' + name)
-            with open(self.CONF_FILE, "r") as f:
-                self.CONFIG_DATA = yaml.safe_load(f)
-        except Exception as e:
-            logging.error("load conf fail! {} {}".format(self.CONF_FILE, e))
+        utils.mkdir(self.USER_PATH)
+        utils.mkdir(self.FACE_ID_PATH)
+        print(self.CONF_FILE)
+        if os.path.exists(self.CONF_FILE) is False:
+            for name in ['config.yml', '八戒.pmdl']:
+                utils.cp(CUR_PATH+'/conf/' + name, self.USER_PATH + '/' + name)
+        self.CONFIG_DATA = utils.load_conf(self.CONF_FILE)
         print(self.CONFIG_DATA)
 
         # 启动摄像头人脸识别
-        self.camera = camera.Face()
+        self.camera = camera.Face(faceid_path=self.FACE_ID_PATH, temp_path=self.TEMP_PATH)
         # self.camera.get_camera_face(camera_data=self.CAMERA_DATA, callback=camera.show_camera_face_window)
         self.camera.get_camera_face(camera_data=self.CAMERA_DATA, callback=self.patrol)
 
     def patrol(self, camera_data):
         """巡逻"""
         while True:
-            time.sleep(5)
+            time.sleep(1)
             # 检查视野中的人
             newface = {}
             if self.CAMERA_DATA['camera']['filename'] and len(self.CAMERA_DATA['face']['list']) > 0 and time.time() - self.CAMERA_DATA['face']['list'][-1]['lasttime'] < 2.0:
@@ -91,9 +84,7 @@ class Robot:
                             faceid = self.camera.register_faceid(newface['filename'], name, faceid_path=self.FACE_ID_PATH)
                             self.CONFIG_DATA['master']['faceid'] = faceid
                             # 保存配置
-                            with open(self.CONF_FILE, "wb") as f:
-                                print(yaml.dump(self.CONFIG_DATA))
-                                #yaml.dump(self.CONFIG_DATA, f)
+                            utils.dump_conf(self.CONFIG_DATA, self.CONF_FILE)
                 else:
                     print('主人，请正对着我，让我看到你的脸～')
 

@@ -33,7 +33,6 @@ import logging
 import cv2
 import numpy as np
 import face_recognition
-from xpinyin import Pinyin
 from threading import Thread
 
 # PATH
@@ -92,14 +91,18 @@ def show_camera_face_window(camera_data, warning_faceids=['mjs', 'zhu', 'yjy', '
 
 class Face():
     """人脸测试"""
-    DATA_PATH = CUR_PATH + "/data/"
-    FACE_DB_PATH = CUR_PATH + "/data/facedb/"
-    FACE_ID_PATH = FACE_DB_PATH + "/faceid"
+    #DATA_PATH = CUR_PATH + "/data/"
+    TEMP_PATH = CUR_PATH + "/data/tmp/"
+    FACE_ID_PATH = CUR_PATH + "/data/facedb/faceid/"
 
-    def __init__(self, img_path=None):
+    def __init__(self, faceid_path=None, temp_path=None):
         """初始化facedb"""
+        if faceid_path is not None:
+            self.FACE_ID_PATH = faceid_path
+        if temp_path is not None:
+            self.TEMP_PATH = temp_path
         self.facedb, self.facenames = [], []
-        self.create_face_db(img_path=img_path)
+        self.create_face_db(faceid_path=faceid_path)
         # 摄像头数据
         self.camera_data = {
             'camera': {  # 界面上方摄像头区域数据
@@ -116,34 +119,37 @@ class Face():
             }
         }
 
-    def create_face_db(self, img_path=None):
+    def create_face_db(self, faceid_path=None):
         """创建FaceDB字典"""
-        if img_path is None:
-            img_path = self.FACE_ID_PATH
+        if faceid_path is None:
+            faceid_path = self.FACE_ID_PATH
 
         #self.facedb, self.facenames = [], []
-        if os.path.exists(img_path) is False:
+        if os.path.exists(faceid_path) is False:
             return
-        for img_file in os.listdir(img_path):
+        for img_file in os.listdir(faceid_path):
             if img_file in utils.TMPNAMES:
                 continue
-            image = face_recognition.load_image_file(img_path + img_file)
+            image = face_recognition.load_image_file(faceid_path + img_file)
             emb = face_recognition.face_encodings(image)[0]
+            tmp = img_file.split('.')
+            faceid = tmp[0]
+            facename = tmp[1] if len(tmp) > 2 else faceid
             self.facedb.append(emb)
-            self.facenames.append(img_file.split('.')[0])
+            self.facenames.append({'id': faceid, 'name': facename})
+            #print(faceid, emb)
 
     def register_faceid(self, face_img_file, name, faceid_path=None):
         """注册新的faceid"""
-        pinyin = Pinyin()
-        faceid = pinyin.get_pinyin(name, "")
+        faceid = utils.get_pinyin(name)
         if faceid_path is None:
             faceid_path = self.FACE_ID_PATH
-        faceid_file = faceid_path + '/' + faceid + '.jpg'
+        faceid_file = '{}/{}.{}.jpg'.format(faceid_path, faceid, name)
         if os.path.exists(faceid_file):
             utils.cp(faceid_file, faceid_file + '.bak')
         utils.cp(face_img_file, faceid_file)
         # reload
-        self.create_face_db(img_path=faceid_path)
+        self.create_face_db(faceid_path=faceid_path)
         return faceid
 
     def get_faceids(self, img_file=None, image=None, zoom=0.5):
@@ -173,12 +179,13 @@ class Face():
 
         for i in range(len(face_encodings)):
             face_encoding = face_encodings[i]
-            name = "Unknown"
+            faceid = "Unknown"
+            facename = ""
             logging.debug('___face_distance__ {}'.format(i))
             distances = face_recognition.face_distance(self.facedb, face_encoding)
             weight = 0.0
-            # print(distances)
-            if distances is not None and len(distances) > 1:
+            #print(self.facedb, distances)
+            if distances is not None and len(distances) > 0:
                 distances = list(distances)
                 sort_distances = copy.deepcopy(distances)
                 # print(sort_distances)
@@ -187,11 +194,12 @@ class Face():
                 weight = sort_distances[0]
                 idx = distances.index(sort_distances[0])
                 # print(idx)
-                name = self.facenames[idx]
+                faceid = self.facenames[idx]['id']
+                facename = self.facenames[idx]['name']
                 # print(name)
             # rect
             top, right, bottom, left = face_locations[i]
-            faceids.append({'faceid': name, 'weight': float(weight), 'rect': (left, top, right, bottom), 'distance': distances})
+            faceids.append({'faceid': faceid, 'facename': facename, 'weight': float(weight), 'rect': (left, top, right, bottom), 'distance': distances})
 
         logging.info("get faceids: {}".format(faceids))
         return faceids
@@ -204,8 +212,8 @@ class Face():
         self.video_capture = cv2.VideoCapture(camera_id)
 
         # clear tmp file
-        utils.rmdir(self.DATA_PATH + 'tmp')
-        utils.mkdir(self.DATA_PATH + 'tmp')
+        utils.rmdir(self.TEMP_PATH)
+        utils.mkdir(self.TEMP_PATH)
 
         # 后台异步线程-更新摄像头当前数据
         Thread(target=self._get_camera_face_image, args=(camera_data, 20), daemon=True).start()
@@ -240,6 +248,7 @@ class Face():
             # show
             for face in camera_data['camera']['faceids']:
                 faceid = face['faceid'] if face['weight'] < 0.5 else 'unknown'  # 只保留距离<0.5的可信face
+                facename = face['facename'] if face['weight'] < 0.5 else 'unknown'  # 只保留距离<0.5的可信face
                 left, top, right, bottom = face['rect']
                 # Scale back up face locations since the frame we detected in was scaled to 1/4 size
                 top = int(top * 1 / zoom)
@@ -252,7 +261,7 @@ class Face():
                 sec_max_cnt = round((1.1 - zoom) * 10, 2)  # 每秒的最多捕获face次数（与face_locations性能有关）
                 check_cnt = sec_max_cnt if sec_max_cnt > 1 else sec_max_cnt + 1  # 最少2次才能入队列
                 if faceid not in catch_data or time.time() - catch_data[faceid]['lasttime'] > zoom * 3 or catch_data[faceid]['cnt'] >= check_cnt * 1.5:  # 如果此face上次出现距离本次已查超过n s则重置
-                    catch_data[faceid] = {'faceid': faceid, 'weight': face['weight'], 'size': size, 'cnt': 1, 'lasttime': time.time(), 'filename': ''}
+                    catch_data[faceid] = {'faceid': faceid, 'facename': facename, 'weight': face['weight'], 'size': size, 'cnt': 1, 'lasttime': time.time(), 'filename': ''}
                 else:
                     catch_data[faceid]['cnt'] += 1
                     catch_data[faceid]['weight'] += face['weight']
@@ -273,7 +282,7 @@ class Face():
                     # TODO:检查眨眼
                     # 保存人脸照片
                     if catch_data[faceid]['filename'] == '' or i % 10 == 0:
-                        face_file = '{}/face-{}-{}-{}.png'.format(self.DATA_PATH + 'tmp', faceid, round(avg_weight, 2), int(time.time() * 1000))
+                        face_file = '{}/face-{}-{}-{}.png'.format(self.TEMP_PATH, faceid, round(avg_weight, 2), int(time.time() * 1000))
                         face_image = image[top:bottom, left:right]
                         face_image = cv2.resize(face_image, (80, 80), interpolation=cv2.INTER_CUBIC)
                         cv2.imwrite(face_file, face_image)
@@ -303,7 +312,7 @@ class Face():
 
             # 保存摄像头照片
             # logging.debug('___get_camera_face_image__ 2')
-            img_file = '{}/camera-{}.png'.format(self.DATA_PATH + 'tmp', int(time.time() * 1000))
+            img_file = '{}/camera-{}.png'.format(self.TEMP_PATH, int(time.time() * 1000))
             image = cv2.resize(image, (0, 0), fx=0.798, fy=0.798)
             # logging.debug('___get_camera_face_image__ 3')
             cv2.imwrite(img_file, image)
@@ -314,7 +323,6 @@ class Face():
 
     def _clear_tmp_path(self, camera_data, sleep=1000):
         """清理摄像头临时数据"""
-        tmp_path = self.DATA_PATH + 'tmp'
         while True:
             logging.debug('___clear_tmp_path__')
             time.sleep(sleep / 1000)
@@ -323,11 +331,11 @@ class Face():
             for face in camera_data['face']['list']:
                 skips.append(face['filename'])
             # clear
-            for file in os.listdir(tmp_path):
+            for file in os.listdir(self.TEMP_PATH):
                 # print(float(file.split('-')[-1].split('.')[0]) / 1000)
                 timeout = 60.0 * 60 * 24 if file.count('face') > 0 else 30.0  # camera 30s,face 24h
-                if tmp_path + '/' + file not in skips and time.time() - float(file.split('-')[-1].split('.')[0]) / 1000 > timeout:  # 30s前的无用临时照片清理
-                    os.unlink(tmp_path + '/' + file)
+                if self.TEMP_PATH + '/' + file not in skips and time.time() - float(file.split('-')[-1].split('.')[0]) / 1000 > timeout:  # 30s前的无用临时照片清理
+                    os.unlink(self.TEMP_PATH + '/' + file)
                     logging.debug('clear tmp file: {}'.format(file))
             logging.debug('___clear_tmp_path__ done')
 
