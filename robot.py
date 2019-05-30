@@ -12,6 +12,7 @@ import os
 import sys
 import time
 import yaml
+import copy
 import logging
 from lib.camera import Face
 from dp.pygui import PySimpleGUI as sg
@@ -60,6 +61,7 @@ class Robot:
         print(self.CONFIG_DATA)
         # 主人初始化状态(status: 1face已确认；2名字已确认)
         self.master = {'status': 0, 'time': 0, 'face': '', 'morning': 0, 'noon': 0, 'evening': 0}
+        self.guest = {'status': 0, 'time': 0, 'face': '', 'morning': 0, 'noon': 0, 'evening': 0}
         self.master.update(self.CONFIG_DATA['master'])
         print(self.master)
 
@@ -96,6 +98,10 @@ class Robot:
                     if self.saying == '':
                         self.say('主人，请正对着我，让我看到你的脸～')
                         self.master['status'] = 0
+            # elif 'faceid' in self.newface:  # 认识陌生人
+            #    if self.guest['status'] == 0 and self.saying == '':
+            #        self.say('你是谁？', callback=self.callback_guestname)
+
             # 话筒收音
             #answer = self.listen()
 
