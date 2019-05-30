@@ -84,7 +84,7 @@ class Robot:
             if self.CAMERA_DATA['camera']['filename'] and len(self.CAMERA_DATA['face']['list']) > 0 and time.time() - self.CAMERA_DATA['face']['list'][-1]['lasttime'] < 2.0:
                 self.newface = self.CAMERA_DATA['face']['list'][-1]
                 if self.newface['facename'] != '' and self.master['evening'] == 0:
-                    self.say('{}晚上好～'.format(self.newface['facename']))
+                    self.say('{}晚上好，我去巡逻了，有事喊{}我就来了'.format(self.newface['facename'], config.get('robot_name_cn', '八戒')))
                     self.master['evening'] += 1
             print(self.newface)
             # 主人初始化
