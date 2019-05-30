@@ -58,6 +58,10 @@ class Robot:
                 utils.cp(CUR_PATH+'/conf/' + name, self.USER_PATH + '/' + name)
         self.CONFIG_DATA = utils.load_conf(self.CONF_FILE)
         print(self.CONFIG_DATA)
+        # 主人初始化状态(status: 1face已确认；2名字已确认)
+        self.master = {'status': 0, 'time': 0, 'face': '', 'morning': 0, 'noon': 0, 'evening': 0}
+        self.master.update(self.CONFIG_DATA['master'])
+        print(self.master)
 
         # 初始化语音合成
         self.saying = ''  # 是否正在播放
@@ -79,15 +83,21 @@ class Robot:
             self.newface = {}
             if self.CAMERA_DATA['camera']['filename'] and len(self.CAMERA_DATA['face']['list']) > 0 and time.time() - self.CAMERA_DATA['face']['list'][-1]['lasttime'] < 2.0:
                 self.newface = self.CAMERA_DATA['face']['list'][-1]
+                if self.newface['facename'] != '' and self.master['evening'] == 0:
+                    self.say('{}晚上好～'.format(self.newface['facename']))
+                    self.master['evening'] += 1
             print(self.newface)
             # 主人初始化
-            if self.CONFIG_DATA['master']['faceid'] == '':
+            if self.master['faceid'] == '':
                 if 'faceid' in self.newface:
-                    if self.saying == '':
-                        self.say('看到了，主人是你吗？', callback=self.callback_ismaster)
+                    if self.master['status'] == 0 and self.saying == '':
+                        self.say('主人是你吗？', callback=self.callback_ismaster)
                 else:
                     if self.saying == '':
                         self.say('主人，请正对着我，让我看到你的脸～')
+                        self.master['status'] = 0
+            # 话筒收音
+            #answer = self.listen()
 
             # 巡逻并旋转摄像头
             # TODO
@@ -99,6 +109,8 @@ class Robot:
         answer = self.listen()   # 收音
         print(answer)
         if len(answer) > 0 and answer.count('是') > 0 and answer.count('不是') == 0:
+            self.master['status'] = 1
+            self.master['face'] = self.newface
             self.say('你叫什么名字？', callback=self.callback_mastername)
 
     def callback_mastername(self, msg):
@@ -106,16 +118,19 @@ class Robot:
         self.saying = ''
         answer = self.listen()  # 收音
         print(answer)
-        if len(answer) > 0:
+        if len(answer) == 0:
+            self.say('你叫什么名字？', callback=self.callback_mastername)
+        else:
             name = answer
-            print('正在保存主人信息... '+name)
+            self.say('正在保存主人[{}]的信息... '.format(name))
             self.CONFIG_DATA['master']['name'] = name
             self.CONFIG_DATA['master']['nick'] = '主人'
             # 保存人脸
-            faceid = self.camera.register_faceid(self.newface['filename'], name, faceid_path=self.FACE_ID_PATH)
+            faceid = self.camera.register_faceid(self.master['face']['filename'], name, faceid_path=self.FACE_ID_PATH)
             self.CONFIG_DATA['master']['faceid'] = faceid
             # 保存配置
             utils.dump_conf(self.CONFIG_DATA, self.CONF_FILE)
+            self.master['status'] = 2
 
     def say(self, msg, cache=False, callback=None):
         """说话"""
