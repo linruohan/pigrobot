@@ -57,12 +57,12 @@ class Robot:
             for name in ['config.yml', '八戒.pmdl']:
                 utils.cp(CUR_PATH+'/conf/' + name, self.USER_PATH + '/' + name)
         self.CONFIG_DATA = utils.load_conf(self.CONF_FILE)
-        print(self.CONFIG_DATA)
+        # print(self.CONFIG_DATA)
         # 主人初始化状态(status: 1face已确认；2名字已确认)
         self.master = {'status': 0, 'time': 0, 'face': '', 'morning': 0, 'noon': 0, 'evening': 0, 'lastask': 0}
         self.guest = {'status': 0, 'time': 0, 'face': '', 'morning': 0, 'noon': 0, 'evening': 0, 'lastask': 0}
         # self.master.update(self.CONFIG_DATA['master'])
-        print(self.master)
+        # print(self.master)
 
         # 初始化语音合成
         self.saying = ''  # 是否正在播放
@@ -86,7 +86,7 @@ class Robot:
             if self.CAMERA_DATA['camera']['filename'] and len(self.CAMERA_DATA['face']['list']) > 0 and time.time() - self.CAMERA_DATA['face']['list'][-1]['lasttime'] < 2.0:
                 self.newface = self.CAMERA_DATA['face']['list'][-1]
                 if self.newface['facename'] not in ('', 'unknown') and self.master['evening'] == 0:
-                    self.say('{}晚上好，有事喊{}'.format(self.newface['facename'], config.get('robot_name_cn', '八戒')))
+                    self.say('{}晚上好，我是{}，有事叫我哦～'.format(self.newface['facename'], config.get('robot_name_cn', '八戒')))
                     self.master['evening'] += 1
             print(self.newface)
             # 主人初始化
@@ -99,7 +99,7 @@ class Robot:
                         self.say('主人，请正对着我，让我看到你的脸～')
                         self.master['status'] = 0
             elif 'faceid' in self.newface and self.newface['faceid'] == 'unknown':  # 认识陌生人
-                if self.guest['status'] == 0 and self.saying == '':
+                if self.guest['status'] == 0 and self.saying == '' and (self.guest['lastask'] == 0 or time.time() - self.guest['lastask'] > 30):
                     self.guest['status'] = 1
                     self.guest['face'] = self.newface
                     self.guest['lastask'] = time.time()
@@ -148,8 +148,18 @@ class Robot:
         answer = self.listen()  # 收音
         print(answer)
         if len(answer) == 0:
-            if self.guest['lastask'] == 0 or time.time() - self.guest['lastask'] < 10:
-                self.say('你是谁？', callback=self.callback_guestname)
+            question = '你到底是谁？'
+            if len(self.CAMERA_DATA['face']['list']) > 0 and self.CAMERA_DATA['face']['list'][-1]['faceid'] != 'unknown':
+                question = ''
+            elif self.guest['lastask'] != 0:
+                t = time.time() - self.guest['lastask']
+                if t > 10 and t < 15:
+                    question = '不说就算了，懒得理你！'
+                if t > 15:  # 总不回答就不问了
+                    question = ''
+                    self.guest['status'] == 0
+            if question != '':
+                self.say(question, callback=self.callback_guestname)
         else:
             name = utils.clear_punctuation(answer)
             self.say('正在保存[{}]的信息... '.format(name))
