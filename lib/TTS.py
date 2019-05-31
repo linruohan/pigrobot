@@ -5,13 +5,14 @@ Desc: 语音合成
 """
 from aip import AipSpeech
 from .speech import TencentSpeech, AliSpeech
-from . import utils, config, Player
+from . import config
 import logging
 import base64
 import time
 import requests
 import hashlib
 from abc import ABCMeta, abstractmethod
+from dp import utils
 
 
 class AbstractTTS(object):

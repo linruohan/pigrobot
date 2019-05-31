@@ -5,7 +5,7 @@ Desc: 语音识别
 """
 from aip import AipSpeech
 from .speech import TencentSpeech, AliSpeech
-from . import utils, config
+from . import config
 import logging
 import requests
 import base64
@@ -13,6 +13,7 @@ import hashlib
 import time
 import json
 from abc import ABCMeta, abstractmethod
+from dp import utils, audio
 
 
 class AbstractASR(object):
@@ -72,7 +73,7 @@ class BaiduASR(AbstractASR):
 
     def transcribe(self, fp):
         # 识别本地文件
-        pcm = utils.get_pcm_from_wav(fp)
+        pcm = audio.get_pcm_from_wav(fp)
         res = self.client.asr(pcm, 'pcm', 16000, {
             'dev_pid': self.dev_pid,
         })
@@ -102,9 +103,9 @@ class TencentASR(AbstractASR):
         return config.get('tencent_yuyin', {})
 
     def transcribe(self, fp):
-        mp3_path = utils.convert_wav_to_mp3(fp)
+        mp3_path = audio.convert_wav_to_mp3(fp)
         r = self.engine.ASR(mp3_path, 'mp3', '1', self.region)
-        utils.check_and_delete(mp3_path)
+        utils.rmdir(mp3_path)
         res = json.loads(r)
         if 'Response' in res and 'Result' in res['Response']:
             logging.info('{} 语音识别到了：{}'.format(self.SLUG, res['Response']['Result']))

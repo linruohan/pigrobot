@@ -101,6 +101,8 @@ class Face():
             self.FACE_ID_PATH = faceid_path
         if temp_path is not None:
             self.TEMP_PATH = temp_path
+        utils.mkdir(self.TEMP_PATH)
+        utils.mkdir(self.FACE_ID_PATH)
         self.facedb, self.facenames = [], []
         self.create_face_db(faceid_path=faceid_path)
         # 摄像头数据

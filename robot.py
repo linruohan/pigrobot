@@ -16,10 +16,9 @@ import copy
 import logging
 from lib.camera import Face
 from dp.pygui import PySimpleGUI as sg
-from dp import utils
+from dp import utils, audio
 from lib import TTS, config, Player, constants, ASR
 from lib.snowboy import snowboydecoder
-from lib import utils as libutil
 CUR_PATH = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -52,6 +51,7 @@ class Robot:
         """初始化"""
         # 个人配置初始化
         utils.mkdir(self.USER_PATH)
+        utils.mkdir(self.TEMP_PATH)
         utils.mkdir(self.FACE_ID_PATH)
         print(self.CONF_FILE)
         if os.path.exists(self.CONF_FILE) is False:
@@ -62,7 +62,7 @@ class Robot:
         # 主人初始化状态(status: 1face已确认；2名字已确认)
         self.master = {'status': 0, 'time': 0, 'face': '', 'morning': 0, 'noon': 0, 'evening': 0}
         self.guest = {'status': 0, 'time': 0, 'face': '', 'morning': 0, 'noon': 0, 'evening': 0}
-        self.master.update(self.CONFIG_DATA['master'])
+        # self.master.update(self.CONFIG_DATA['master'])
         print(self.master)
 
         # 初始化语音合成
@@ -80,17 +80,17 @@ class Robot:
     def patrol(self, camera_data):
         """巡逻"""
         while True:
-            time.sleep(10)
+            time.sleep(8)
             # 检查视野中的人
             self.newface = {}
             if self.CAMERA_DATA['camera']['filename'] and len(self.CAMERA_DATA['face']['list']) > 0 and time.time() - self.CAMERA_DATA['face']['list'][-1]['lasttime'] < 2.0:
                 self.newface = self.CAMERA_DATA['face']['list'][-1]
                 if self.newface['facename'] != '' and self.master['evening'] == 0:
-                    self.say('{}晚上好，我去巡逻了，有事喊{}我就来了'.format(self.newface['facename'], config.get('robot_name_cn', '八戒')))
+                    self.say('{}晚上好，有事喊{}'.format(self.newface['facename'], config.get('robot_name_cn', '八戒')))
                     self.master['evening'] += 1
             print(self.newface)
             # 主人初始化
-            if self.master['faceid'] == '':
+            if self.CONFIG_DATA['master']['faceid'] == '':
                 if 'faceid' in self.newface:
                     if self.master['status'] == 0 and self.saying == '':
                         self.say('主人是你吗？', callback=self.callback_ismaster)
@@ -143,14 +143,14 @@ class Robot:
         print("saying: "+msg)
         self.saying = msg
         voice = ''
-        if libutil.getCache(msg):
+        if utils.get_cache_file(msg, constants.TEMP_PATH):
             logging.info("命中缓存，播放缓存语音")
-            voice = libutil.getCache(msg)
+            voice = utils.get_cache_file(msg, constants.TEMP_PATH)
         else:
             try:
                 voice = self.tts.get_speech(msg)
                 if cache:
-                    libutil.saveCache(voice, msg)
+                    utils.cache_file(voice, msg, constants.TEMP_PATH)
             except Exception as e:
                 logging.error('保存缓存失败：{}'.format(e))
 
@@ -159,8 +159,7 @@ class Robot:
                 return callback(msg)
             else:
                 return self.say_callback(msg)
-        self.player = Player.SoxPlayer()
-        self.player.play(voice, not cache, _callback)
+        audio.play(voice, delete=not cache, callback=_callback)
 
     def say_callback(self, msg):
         self.saying = ''
@@ -175,7 +174,7 @@ class Robot:
 
     def listen(self):
         """收音并识别为文字"""
-        Player.play(constants.getData('beep_hi.wav'))
+        # Player.play(constants.getData('./media/beep_hi.wav'))
         hotword_model = constants.getHotwordModel(config.get('hotword', 'default.pmdl'))
         # print(hotword_model)
         listener = snowboydecoder.ActiveListener([hotword_model])
@@ -183,9 +182,9 @@ class Robot:
             silent_count_threshold=config.get('silent_threshold', 15),
             recording_timeout=config.get('recording_timeout', 5) * 4
         )
-        Player.play(constants.getData('beep_lo.wav'))
+        Player.play(constants.getData('./media/beep_lo.wav'))
         query = self.asr.transcribe(voice)
-        libutil.check_and_delete(voice)
+        utils.rmdir(voice)
         print("listen: "+query)
         return query
 
