@@ -14,10 +14,9 @@ import time
 import yaml
 import copy
 import logging
-from lib.camera import Face
 from dp.pygui import PySimpleGUI as sg
 from dp import utils, audio
-from lib import TTS, config, Player, constants, ASR
+from lib import TTS, config, Player, constants, ASR, camera
 from lib.snowboy import snowboydecoder
 CUR_PATH = os.path.dirname(os.path.abspath(__file__))
 
@@ -70,17 +69,18 @@ class Robot:
         self.tts = TTS.get_engine_by_slug(config.get('tts_engine', 'baidu-tts'))
 
         # 初始化语音识别
+        self.listening = False  # 是否正在收音
         self.asr = ASR.get_engine_by_slug(config.get('asr_engine', 'tencent-asr'))
 
         # 启动摄像头人脸识别
-        self.camera = Face(faceid_path=self.FACE_ID_PATH, temp_path=self.TEMP_PATH)
-        # self.camera.get_camera_face(camera_data=self.CAMERA_DATA, callback=camera.show_camera_face_window)
+        self.camera = camera.Face(faceid_path=self.FACE_ID_PATH, temp_path=self.TEMP_PATH)
+        #self.camera.get_camera_face(camera_data=self.CAMERA_DATA, callback=camera.show_camera_face_window)
         self.camera.get_camera_face(camera_data=self.CAMERA_DATA, callback=self.patrol)
 
     def patrol(self, camera_data):
         """巡逻"""
         while True:
-            time.sleep(8)
+            time.sleep(2)
             # 检查视野中的人
             self.newface = {}
             if self.CAMERA_DATA['camera']['filename'] and len(self.CAMERA_DATA['face']['list']) > 0 and time.time() - self.CAMERA_DATA['face']['list'][-1]['lasttime'] < 2.0:
@@ -92,15 +92,17 @@ class Robot:
             # 主人初始化
             if self.CONFIG_DATA['master']['faceid'] == '':
                 if 'faceid' in self.newface:
-                    if self.master['status'] == 0 and self.saying == '':
+                    if self.master['status'] == 0 and self.saying == '' and self.listening is False:
                         self.say('主人是你吗？', callback=self.callback_ismaster)
                 else:
-                    if self.saying == '':
+                    if self.saying == '' and self.listening is False:
                         self.say('主人，请正对着我，让我看到你的脸～')
                         self.master['status'] = 0
-            # elif 'faceid' in self.newface:  # 认识陌生人
-            #    if self.guest['status'] == 0 and self.saying == '':
-            #        self.say('你是谁？', callback=self.callback_guestname)
+            elif 'faceid' in self.newface and self.newface['faceid'] == 'unknown':  # 认识陌生人
+                if self.guest['status'] == 0 and self.saying == '':
+                    self.guest['status'] = 1
+                    self.guest['face'] = self.newface
+                    self.say('你是谁？', callback=self.callback_guestname)
 
             # 话筒收音
             #answer = self.listen()
@@ -127,7 +129,7 @@ class Robot:
         if len(answer) == 0:
             self.say('你叫什么名字？', callback=self.callback_mastername)
         else:
-            name = answer
+            name = utils.clear_punctuation(answer)
             self.say('正在保存主人[{}]的信息... '.format(name))
             self.CONFIG_DATA['master']['name'] = name
             self.CONFIG_DATA['master']['nick'] = '主人'
@@ -137,6 +139,20 @@ class Robot:
             # 保存配置
             utils.dump_conf(self.CONFIG_DATA, self.CONF_FILE)
             self.master['status'] = 2
+
+    def callback_guestname(self, msg):
+        """确认陌生人名字的回调"""
+        self.saying = ''
+        answer = self.listen()  # 收音
+        print(answer)
+        if len(answer) == 0:
+            self.say('你是谁？', callback=self.callback_guestname)
+        else:
+            name = utils.clear_punctuation(answer)
+            self.say('正在保存[{}]的信息... '.format(name))
+            # 保存人脸
+            faceid = self.camera.register_faceid(self.guest['face']['filename'], name, faceid_path=self.FACE_ID_PATH)
+            self.guest['status'] = 2
 
     def say(self, msg, cache=False, callback=None):
         """说话"""
@@ -163,17 +179,10 @@ class Robot:
 
     def say_callback(self, msg):
         self.saying = ''
-        '''if config.get('active_mode', False) and \
-        (
-            msg.endswith('?') or
-            msg.endswith(u'？') or
-            u'告诉我' in msg or u'请回答' in msg
-        ):
-            query = self.activeListen()
-            self.doResponse(query)'''
 
     def listen(self):
         """收音并识别为文字"""
+        self.listening = True
         # Player.play(constants.getData('./media/beep_hi.wav'))
         hotword_model = constants.getHotwordModel(config.get('hotword', 'default.pmdl'))
         # print(hotword_model)
@@ -185,7 +194,8 @@ class Robot:
         Player.play(constants.getData('./media/beep_lo.wav'))
         query = self.asr.transcribe(voice)
         utils.rmdir(voice)
-        print("listen: "+query)
+        print("listen: " + query)
+        self.listening = False
         return query
 
 

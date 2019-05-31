@@ -47,7 +47,7 @@ do_not_bother:
 # xunfei-tts    - 讯飞语音合成
 # ali-tts       - 阿里语音合成（推荐）
 # tencent-tts   - 腾讯云语音合成（推荐）
-tts_engine: baidu-tts
+tts_engine: xunfei-tts
 
 # 语音识别服务配置
 # 可选值：

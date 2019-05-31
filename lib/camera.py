@@ -47,10 +47,10 @@ def show_camera_face_window(camera_data, warning_faceids=['mjs', 'zhu', 'yjy', '
     # create window
     face_imgs, face_labels = [], []
     for i in range(MAX_FACE):
-        face_imgs.append(sg.Image(filename=CUR_PATH + '/data/image/kuang.png', size=(80, 80), key='face' + str(i)))
+        face_imgs.append(sg.Image(filename=CUR_PATH + '/../data/image/kuang.png', size=(80, 80), key='face' + str(i)))
         face_labels.append(sg.Text('', size=(14, 1), key='label' + str(i)))
     layout = [
-        [sg.Image(filename=CUR_PATH + '/data/image/pic.png', size=(600, 400), key='camera')],
+        [sg.Image(filename=CUR_PATH + '/../data/image/pic.png', size=(600, 400), key='camera')],
         face_imgs,
         face_labels,
         [sg.Text('filename', size=(100, 1), key='filename')]
@@ -202,6 +202,7 @@ class Face():
             # rect
             top, right, bottom, left = face_locations[i]
             faceids.append({'faceid': faceid, 'facename': facename, 'weight': float(weight), 'rect': (left, top, right, bottom), 'distance': distances})
+            # print(faceids)
 
         logging.info("get faceids: {}".format(faceids))
         return faceids
@@ -249,8 +250,10 @@ class Face():
             # logging.debug('___get_camera_face_image__ 1')
             # show
             for face in camera_data['camera']['faceids']:
-                faceid = face['faceid'] if face['weight'] < 0.5 else 'unknown'  # 只保留距离<0.5的可信face
-                facename = face['facename'] if face['weight'] < 0.5 else 'unknown'  # 只保留距离<0.5的可信face
+                # print(face)
+                faceid = face['faceid'] if face['weight'] < 0.45 else 'unknown'  # 只保留距离<0.5的可信face
+                facename = face['facename'] if face['weight'] < 0.45 else 'unknown'  # 只保留距离<0.5的可信face
+                weight = face['weight'] if faceid != 'unknown' else 0.0  # 只保留距离<0.5的可信face
                 left, top, right, bottom = face['rect']
                 # Scale back up face locations since the frame we detected in was scaled to 1/4 size
                 top = int(top * 1 / zoom)
@@ -263,12 +266,13 @@ class Face():
                 sec_max_cnt = round((1.1 - zoom) * 10, 2)  # 每秒的最多捕获face次数（与face_locations性能有关）
                 check_cnt = sec_max_cnt if sec_max_cnt > 1 else sec_max_cnt + 1  # 最少2次才能入队列
                 if faceid not in catch_data or time.time() - catch_data[faceid]['lasttime'] > zoom * 3 or catch_data[faceid]['cnt'] >= check_cnt * 1.5:  # 如果此face上次出现距离本次已查超过n s则重置
-                    catch_data[faceid] = {'faceid': faceid, 'facename': facename, 'weight': face['weight'], 'size': size, 'cnt': 1, 'lasttime': time.time(), 'filename': ''}
+                    catch_data[faceid] = {'faceid': faceid, 'facename': facename, 'weight': weight, 'size': size, 'cnt': 1, 'lasttime': time.time(), 'filename': ''}
                 else:
                     catch_data[faceid]['cnt'] += 1
-                    catch_data[faceid]['weight'] += face['weight']
+                    catch_data[faceid]['weight'] += weight
                     catch_data[faceid]['size'] += size
                     catch_data[faceid]['lasttime'] = time.time()
+                # print(catch_data[faceid])
                 # 放入队列
                 avg_weight = round(catch_data[faceid]['weight'] / catch_data[faceid]['cnt'], 4)
                 avg_size = round(catch_data[faceid]['size'] / catch_data[faceid]['cnt'], 2)
@@ -310,7 +314,7 @@ class Face():
                 # 加face标注
                 # if catch_data[faceid]['cnt'] > check_cnt * 0.5:
                 # logging.debug('___get_camera_face_image__ 1.3')
-                cv2.putText(image, '{} {}'.format(faceid, round(face['weight'], 2)), (left + 6, top + 12), cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 255, 0), 1)
+                cv2.putText(image, '{} {}'.format(faceid, round(weight, 2)), (left + 6, top + 12), cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 255, 0), 1)
 
             # 保存摄像头照片
             # logging.debug('___get_camera_face_image__ 2')
