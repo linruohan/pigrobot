@@ -157,8 +157,7 @@ class Robot:
                 if t <= 10:
                     self.say('你到底是谁？', callback=self.callback_guestname)
                 elif t > 10 and t < 15:
-                    self.say('不说就算了，懒得理你！', callback=self.callback_guestname)
-                elif t > 15:  # 总不回答就不问了
+                    self.say('不说就算了，懒得理你！')
                     self.guest['status'] == 0
         else:
             name = utils.clear_punctuation(answer)
