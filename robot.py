@@ -59,8 +59,8 @@ class Robot:
         self.CONFIG_DATA = utils.load_conf(self.CONF_FILE)
         print(self.CONFIG_DATA)
         # 主人初始化状态(status: 1face已确认；2名字已确认)
-        self.master = {'status': 0, 'time': 0, 'face': '', 'morning': 0, 'noon': 0, 'evening': 0}
-        self.guest = {'status': 0, 'time': 0, 'face': '', 'morning': 0, 'noon': 0, 'evening': 0}
+        self.master = {'status': 0, 'time': 0, 'face': '', 'morning': 0, 'noon': 0, 'evening': 0, 'lastask': 0}
+        self.guest = {'status': 0, 'time': 0, 'face': '', 'morning': 0, 'noon': 0, 'evening': 0, 'lastask': 0}
         # self.master.update(self.CONFIG_DATA['master'])
         print(self.master)
 
@@ -69,7 +69,7 @@ class Robot:
         self.tts = TTS.get_engine_by_slug(config.get('tts_engine', 'baidu-tts'))
 
         # 初始化语音识别
-        self.listening = False  # 是否正在收音
+        self.listening = ''  # 是否正在收音
         self.asr = ASR.get_engine_by_slug(config.get('asr_engine', 'tencent-asr'))
 
         # 启动摄像头人脸识别
@@ -85,23 +85,24 @@ class Robot:
             self.newface = {}
             if self.CAMERA_DATA['camera']['filename'] and len(self.CAMERA_DATA['face']['list']) > 0 and time.time() - self.CAMERA_DATA['face']['list'][-1]['lasttime'] < 2.0:
                 self.newface = self.CAMERA_DATA['face']['list'][-1]
-                if self.newface['facename'] != '' and self.master['evening'] == 0:
+                if self.newface['facename'] not in ('', 'unknown') and self.master['evening'] == 0:
                     self.say('{}晚上好，有事喊{}'.format(self.newface['facename'], config.get('robot_name_cn', '八戒')))
                     self.master['evening'] += 1
             print(self.newface)
             # 主人初始化
             if self.CONFIG_DATA['master']['faceid'] == '':
                 if 'faceid' in self.newface:
-                    if self.master['status'] == 0 and self.saying == '' and self.listening is False:
+                    if self.master['status'] == 0 and self.saying == '' and self.listening == '':
                         self.say('主人是你吗？', callback=self.callback_ismaster)
                 else:
-                    if self.saying == '' and self.listening is False:
+                    if self.saying == '' and self.listening == '':
                         self.say('主人，请正对着我，让我看到你的脸～')
                         self.master['status'] = 0
             elif 'faceid' in self.newface and self.newface['faceid'] == 'unknown':  # 认识陌生人
                 if self.guest['status'] == 0 and self.saying == '':
                     self.guest['status'] = 1
                     self.guest['face'] = self.newface
+                    self.guest['lastask'] = time.time()
                     self.say('你是谁？', callback=self.callback_guestname)
 
             # 话筒收音
@@ -119,6 +120,7 @@ class Robot:
         if len(answer) > 0 and answer.count('是') > 0 and answer.count('不是') == 0:
             self.master['status'] = 1
             self.master['face'] = self.newface
+            self.master['lastask'] = time.time()
             self.say('你叫什么名字？', callback=self.callback_mastername)
 
     def callback_mastername(self, msg):
@@ -146,7 +148,8 @@ class Robot:
         answer = self.listen()  # 收音
         print(answer)
         if len(answer) == 0:
-            self.say('你是谁？', callback=self.callback_guestname)
+            if self.guest['lastask'] == 0 or time.time() - self.guest['lastask'] < 10:
+                self.say('你是谁？', callback=self.callback_guestname)
         else:
             name = utils.clear_punctuation(answer)
             self.say('正在保存[{}]的信息... '.format(name))
@@ -182,8 +185,10 @@ class Robot:
 
     def listen(self):
         """收音并识别为文字"""
-        self.listening = True
+        if self.listening == '':
+            self.listening = str(int(time.time()))
         # Player.play(constants.getData('./media/beep_hi.wav'))
+        audio.play(constants.getData('./media/on.wav'))
         hotword_model = constants.getHotwordModel(config.get('hotword', 'default.pmdl'))
         # print(hotword_model)
         listener = snowboydecoder.ActiveListener([hotword_model])
@@ -191,11 +196,12 @@ class Robot:
             silent_count_threshold=config.get('silent_threshold', 15),
             recording_timeout=config.get('recording_timeout', 5) * 4
         )
-        Player.play(constants.getData('./media/beep_lo.wav'))
+        # Player.play(constants.getData('./media/beep_lo.wav'))
+        Player.play(constants.getData('./media/off.wav'))
         query = self.asr.transcribe(voice)
         utils.rmdir(voice)
-        print("listen: " + query)
-        self.listening = False
+        logging.debug("listen: " + query)
+        self.listening = ''
         return query
 
 
