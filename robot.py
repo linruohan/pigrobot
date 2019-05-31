@@ -54,7 +54,7 @@ class Robot:
         utils.mkdir(self.FACE_ID_PATH)
         print(self.CONF_FILE)
         if os.path.exists(self.CONF_FILE) is False:
-            for name in ['config.yml', '八戒.pmdl']:
+            for name in ['config.yml', '八戒.pmdl', '小白.pmdl']:
                 utils.cp(CUR_PATH+'/conf/' + name, self.USER_PATH + '/' + name)
         self.CONFIG_DATA = utils.load_conf(self.CONF_FILE)
         # print(self.CONFIG_DATA)
