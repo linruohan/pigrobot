@@ -148,18 +148,18 @@ class Robot:
         answer = self.listen()  # 收音
         print(answer)
         if len(answer) == 0:
-            question = '你到底是谁？'
             if len(self.CAMERA_DATA['face']['list']) > 0 and self.CAMERA_DATA['face']['list'][-1]['faceid'] != 'unknown':
-                question = ''
+                self.say('原来是{}啊，不好意思刚没看清楚。'.format(self.CAMERA_DATA['face']['list'][-1]['facename']))
+                self.guest['status'] == 0
+                self.guest['lastask'] = 0
             elif self.guest['lastask'] != 0:
                 t = time.time() - self.guest['lastask']
-                if t > 10 and t < 15:
-                    question = '不说就算了，懒得理你！'
-                if t > 15:  # 总不回答就不问了
-                    question = ''
+                if t <= 10:
+                    self.say('你到底是谁？', callback=self.callback_guestname)
+                elif t > 10 and t < 15:
+                    self.say('不说就算了，懒得理你！', callback=self.callback_guestname)
+                elif t > 15:  # 总不回答就不问了
                     self.guest['status'] == 0
-            if question != '':
-                self.say(question, callback=self.callback_guestname)
         else:
             name = utils.clear_punctuation(answer)
             self.say('正在保存[{}]的信息... '.format(name))
