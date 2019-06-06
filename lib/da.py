@@ -91,15 +91,6 @@ class Node(object):
             names += self.childs[id].get_trie_child_names()
         return names
 
-    def get_trie_leaf_child_names(self):  # 这个函数还有点问题
-        """获取trietree中能抵达isleaf节点的链路节点名"""
-        ret, names = self.isleaf, [self.name]
-        for id in self.childs:
-            _ret, _names = self.childs[id].get_trie_leaf_child_names()
-            ret = _ret if _ret is True else ret
-            names += _names
-        return ret, names
-
     def print(self, prefix=''):
         """打印树"""
         print(prefix + str(self.deep) + ' ' + self.name + ' ('+str(self.count) + ')\t'+str(len(self.childs)) + '\t'+str(self.isleaf) + '\t'+str(self.param))
@@ -229,49 +220,64 @@ class Da():
                             if fo:
                                 fo.close()
 
-                break
+                # break
 
         # self.parser_tree.print()
 
     def get_parser(self, trigger, query):
         """解析某trigger下的query"""
         logging.info('__get_parser__{},{}'.format(trigger, query))
-        parsers = {}
-        #
+        parsers = []
+        # query处理
         query = utils.full2half(query).strip().lower()
+        # 意图parser配置/词典树
         parser_tree = self.parser_tree.get_child(trigger)
         # parser_tree.print()
 
         # 解析query
-        res_tree = Node('root')
-        self.parser_query(parser_tree.get_child('pattern'), parser_tree.get_child('term'), query, parent_node=res_tree)
-        res_tree.print()
-        for pid in res_tree.childs:  # pattern层
-            pname = res_tree.childs[pid].name
-            plist = pname[1:-1].split('][')
-            res = res_tree.childs[pid].get_trie_child_names()[1:]
-            if len(res) >= len(plist):
-                #print(plist, res)
-                parsers[pname] = res
+        _res = {}
+        self.parser_query(parser_tree.get_child('pattern'), parser_tree.get_child('term'), query, _res)
+        # print(_res)
+        # res_tree.print()
+        # 解析结果格式化
+        for pname in _res:
+            pattern_list = pname[1:-1].split('][')
+            dict_count = len(pattern_list)
+            if len(_res[pname]) < dict_count:  # 未完全匹配模版的跳过
+                continue
+            #print(pname, _res[pname])
+            # 格式化res
+            q = ''
+            res = []
+            for i in range(dict_count):
+                dname = pattern_list[i]
+                substr = _res[pname][i][0]['substr']
+                if len(_res[pname][i]) > 1:  # 多选1时，使用后缀比较选择能匹配上的那个
+                    for term in _res[pname][i]:
+                        _q = term['substr'] + q
+                        if _q == query[len(_q)*-1:]:
+                            substr = term['substr']
+                q = substr + q
+                # print(q)
+                res.append((dname, substr))
+            res.reverse()
+            parsers.append({'pattern': pname, 'parser': res})
         return parsers
 
-    def parser_query(self, pattern_tree, term_tree, query, parent_node=None):
+    def parser_query(self, pattern_tree, term_tree, query, parent_res={}):
         """根据解析模版树和词库树解析query"""
         for id in pattern_tree.childs:
             ptree = pattern_tree.childs[id]  # 子树
             pid = ptree.param
-            # if pid not in parent_res:  # 按模版id分组
-            #    parent_res[pid] = []
-            if parent_node.name == 'root':
-                _parent_node = parent_node.add_child(Node(ptree.param))
-            else:
-                _parent_node = parent_node
+            if pid not in parent_res:  # 按模版id分组
+                parent_res[pid] = []
             res = term_tree.get_child(ptree.name).find_trietree(query)  # 用query匹配dname对应的term词典
-            print("{}\t{}\t[{}] {}\t{}".format(pid, query, ptree.name, ptree.isleaf, res))
+            logging.debug("{}\t{}\t[{}] {}\t{}".format(pid, query, ptree.name, ptree.isleaf, res))
             for term in res:
-                __parent_node = _parent_node.add_child(Node(term['substr'], isleaf=ptree.isleaf))
                 if len(ptree.childs) > 0 and len(res) > 0:  # 继续沿树往下找
-                    self.parser_query(ptree, term_tree, query[term['pos'][1]:], parent_node=__parent_node)
+                    self.parser_query(ptree, term_tree, query[term['pos'][1]:], parent_res)
+            if len(res) > 0:
+                parent_res[pid].append(res)
 
 
 if __name__ == '__main__':
@@ -280,12 +286,14 @@ if __name__ == '__main__':
 
     da = Da()
     # 意图分类
+    #res = da.get_trigger("宝马3系报价")
     res = da.get_trigger("哪个恐龙跑的最快？")
-    print(res)
+    print("trigger: {}".format(res))
     # 意图分类下的query解析
+    #res = da.get_parser(res[0]['type'], "宝马3系报价")
     res = da.get_parser(res[0]['type'], "哪个恐龙跑的最快？")
     #res = da.get_parser(res[0]['type'], "跑的最快的恐龙")
-    print(res)
+    print("parser: {}".format(res))
 
     '''
     # tree test
@@ -304,8 +312,5 @@ if __name__ == '__main__':
 
     # trietree查找
     res = ctree.find_trietree('一汽大众迈腾')
-    print(res)
-    # 递归name立标
-    res = ctree.get_trie_child_names()
     print(res)
     '''
