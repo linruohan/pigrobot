@@ -23,11 +23,12 @@ import constants
 class Node(object):
     """解析模版/词库树"""
 
-    def __init__(self, name, deep=0, count=1, childs=None, param=""):
+    def __init__(self, name, deep=0, count=1, isleaf=False, childs=None, param=""):
         self.name = str(name)     # 名称
         self.id = utils.md5(self.name)    # id
         self.deep = deep      # 节点深度类型（0root，1意图分类，2解析模版分类，3+模版树或词库树节点）
-        self.count = count   # 节点计数
+        self.count = count  # 节点计数
+        self.isleaf = isleaf  # 是否可作为叶子节点
         self.param = param   # 参数
         self.childs = childs if childs is not None else {}      # 子节点
 
@@ -40,8 +41,10 @@ class Node(object):
         if node.id in self.childs:
             self.childs[node.id].add_count()
         else:
-            node.deep = self.deep+1
+            node.deep = self.deep + 1
+            # node.print()
             self.childs[node.id] = node
+            # self.print()
         return self.childs[node.id]
 
     def get_child(self, name):
@@ -49,26 +52,64 @@ class Node(object):
         id = utils.md5(name)
         if id in self.childs:
             return self.childs[id]
-
         return None
 
-    def add_word_child(self, _node):
-        """增加单字子节点"""
-        # Node(name=_term, param=_param, deep=3)
+    def get_child_names(self):
+        """获取所有一级子节点的name列表"""
+        names = []
+        for id in self.childs:
+            names.append(self.childs[id].name)
+        return names
+
+    def add_trie_child(self, _node, trieid=None):
+        """增加单字字典树trietree"""
         node = self
-        for w in _node.name:
-            node = node.add_child(Node(name=w, param=_node.param, deep=_node.deep))
+        for i in range(len(_node.name)):
+            isleaf = (i == len(_node.name) - 1)  # 是否是叶子
+            #print(_node.name[i:i+1], isleaf)
+            node = node.add_child(Node(name=_node.name[i:i+1], param=_node.param, isleaf=isleaf))
         return node
+
+    def find_trietree(self, words):
+        """从trietree中查找完全匹配字符串的叶子节点位置"""
+        res = []  # 是否在query中匹配到这个dname
+        node = self
+        for i in range(len(words)):
+            word = words[i:i+1]
+            #print("{},{}".format(i, word))
+            node = node.get_child(word)
+            if node is None:  # 没找到
+                break
+            if node.isleaf:
+                res.append({'node': self.name, 'pos': (0, i+1), 'substr': words[0:i+1]})
+        return res
+
+    def get_trie_child_names(self):
+        """获取trietree递归子节点的name列表"""
+        names = [self.name]
+        for id in self.childs:
+            names += self.childs[id].get_trie_child_names()
+        return names
+
+    def get_trie_leaf_child_names(self):  # 这个函数还有点问题
+        """获取trietree中能抵达isleaf节点的链路节点名"""
+        ret, names = self.isleaf, [self.name]
+        for id in self.childs:
+            _ret, _names = self.childs[id].get_trie_leaf_child_names()
+            ret = _ret if _ret is True else ret
+            names += _names
+        return ret, names
 
     def print(self, prefix=''):
         """打印树"""
-        if self.name == 'root':
-            print(prefix + str(self.deep) + ' ' + self.name + ' ('+str(self.count) + ')')
+        print(prefix + str(self.deep) + ' ' + self.name + ' ('+str(self.count) + ')\t'+str(len(self.childs)) + '\t'+str(self.isleaf) + '\t'+str(self.param))
         prefix += '-'
         for id in self.childs:
-            print(prefix + str(self.childs[id].deep) + ' '+self.childs[id].name + ' ('+str(self.childs[id].count) + ')\t'+str(len(self.childs[id].childs)))
             if len(self.childs[id].childs) > 0:
                 self.childs[id].print(prefix)
+            else:
+                print(prefix + str(self.childs[id].deep) + ' '+self.childs[id].name + ' ('+str(self.childs[id].count) + ')\t' +
+                      str(len(self.childs[id].childs)) + '\t'+str(self.childs[id].isleaf) + '\t'+str(self.childs[id].param))
 
 
 class Da():
@@ -117,6 +158,7 @@ class Da():
     def get_trigger(self, query):
         """意图分类识别"""
         logging.info('__get_trigger__{}'.format(query))
+        query = utils.full2half(query).strip().lower()
         categorys = {}  # 意图id
         words = []
         res = jieba.cut(query, cut_all=False)
@@ -146,34 +188,31 @@ class Da():
         self.parser_tree = Node(name='root')
         # 加载pattern和term
         parser_path = self.DICT_PATH + '/parser/'
-        for root, dirs, files in os.walk(parser_path, True):
+        for _, dirs, __ in os.walk(parser_path, True):
             for category in dirs:
                 if category.count('-') == 0 and category in ('term'):
                     continue
                 category_node = self.parser_tree.add_child(Node(name=category))
                 # pattern
                 pattern_node = category_node.add_child(Node(name='pattern'))
-                res = utils.load_data(parser_path + category + '/pattern.dict', split='][')
-                for row in res:
+                res = utils.load_data(parser_path + category + '/pattern.dict')
+                for line in res:
                     _pattern_node = pattern_node
-                    for term_name in row:
-                        _pattern_node = _pattern_node.add_child(Node(name=term_name.replace('[', '').replace(']', '')))
-
-                # ignore
-                ignore_node = category_node.add_child(Node(name='ignore'))
-                res = utils.load_data(parser_path + category + '/ignore.dict')
-                for row in res:
-                    ignore_node.add_child(Node(name=row))
+                    row = line[1:-1].split('][')
+                    for i in range(len(row)):
+                        isleaf = (i == len(row) - 1)
+                        # print(line)
+                        _pattern_node = _pattern_node.add_child(Node(name=row[i], isleaf=isleaf, param=line))
+                        # _pattern_node.print()
 
                 # term
                 term_node = category_node.add_child(Node(name='term'))
-                for root, dirs, files in os.walk(parser_path + category + '/term/'):
+                for _, __, files in os.walk(parser_path + category + '/term/'):
                     for tfile in files:
                         if tfile[-5:] != '.dict':
                             continue
                         term = tfile[:-5]
                         _term_node = term_node.add_child(Node(name=term))
-                        print(_term_node)
                         # read dict
                         fo = None
                         try:
@@ -183,23 +222,56 @@ class Da():
                             for line in fo:
                                 line = utils.full2half(line).strip().lower()
                                 if len(line) > 0:
-                                    line = line.split('\t', 1)
+                                    line = line.split(' ', 1)
                                     _param = line[1] if len(line) > 1 else ''
-                                    _term_node.add_word_child(Node(name=line[0], param=_param))
+                                    _term_node.add_trie_child(Node(name=line[0], param=_param))
                         finally:
                             if fo:
                                 fo.close()
 
-                # break
+                break
 
-        self.parser_tree.print()
+        # self.parser_tree.print()
 
     def get_parser(self, trigger, query):
         """解析某trigger下的query"""
         logging.info('__get_parser__{},{}'.format(trigger, query))
-        parsers = {}  # 解析结果
+        parsers = {}
+        #
+        query = utils.full2half(query).strip().lower()
+        parser_tree = self.parser_tree.get_child(trigger)
+        # parser_tree.print()
 
+        # 解析query
+        res_tree = Node('root')
+        self.parser_query(parser_tree.get_child('pattern'), parser_tree.get_child('term'), query, parent_node=res_tree)
+        res_tree.print()
+        for pid in res_tree.childs:  # pattern层
+            pname = res_tree.childs[pid].name
+            plist = pname[1:-1].split('][')
+            res = res_tree.childs[pid].get_trie_child_names()[1:]
+            if len(res) >= len(plist):
+                #print(plist, res)
+                parsers[pname] = res
         return parsers
+
+    def parser_query(self, pattern_tree, term_tree, query, parent_node=None):
+        """根据解析模版树和词库树解析query"""
+        for id in pattern_tree.childs:
+            ptree = pattern_tree.childs[id]  # 子树
+            pid = ptree.param
+            # if pid not in parent_res:  # 按模版id分组
+            #    parent_res[pid] = []
+            if parent_node.name == 'root':
+                _parent_node = parent_node.add_child(Node(ptree.param))
+            else:
+                _parent_node = parent_node
+            res = term_tree.get_child(ptree.name).find_trietree(query)  # 用query匹配dname对应的term词典
+            print("{}\t{}\t[{}] {}\t{}".format(pid, query, ptree.name, ptree.isleaf, res))
+            for term in res:
+                __parent_node = _parent_node.add_child(Node(term['substr'], isleaf=ptree.isleaf))
+                if len(ptree.childs) > 0 and len(res) > 0:  # 继续沿树往下找
+                    self.parser_query(ptree, term_tree, query[term['pos'][1]:], parent_node=__parent_node)
 
 
 if __name__ == '__main__':
@@ -212,19 +284,28 @@ if __name__ == '__main__':
     print(res)
     # 意图分类下的query解析
     res = da.get_parser(res[0]['type'], "哪个恐龙跑的最快？")
+    #res = da.get_parser(res[0]['type'], "跑的最快的恐龙")
     print(res)
 
     '''
     # tree test
     tree = Node(name='root')
     ctree = tree.add_child(Node('car'))
-    tree.print()
-    ctree.add_word_child(Node('一汽'))
-    ctree.add_word_child(Node('一起'))
-    ctree.add_word_child(Node('一汽大众'))
-    ctree.add_word_child(Node('一汽奥迪'))
-    ctree.add_word_child(Node('上汽'))
-    ctree.add_word_child(Node('上汽通用'))
-    ctree.add_word_child(Node('上汽通用五菱'))
+    # tree.print()
+    ctree.add_trie_child(Node('一汽'))
+    ctree.add_trie_child(Node('一起'))
+    # ctree.print()
+    ctree.add_trie_child(Node('一汽大众', param='aaa'))
+    ctree.add_trie_child(Node('一汽奥迪'))
+    ctree.add_trie_child(Node('上汽'))
+    ctree.add_trie_child(Node('上汽通用'))
+    ctree.add_trie_child(Node('上汽通用五菱'))
     ctree.print()
+
+    # trietree查找
+    res = ctree.find_trietree('一汽大众迈腾')
+    print(res)
+    # 递归name立标
+    res = ctree.get_trie_child_names()
+    print(res)
     '''
